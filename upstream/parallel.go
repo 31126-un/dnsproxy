@@ -62,6 +62,60 @@ func ExchangeParallel(u []Upstream, req *dns.Msg) (*dns.Msg, Upstream, error) {
 	}
 }
 
+type ExchangeAllResult struct {
+	Resp     *dns.Msg
+	Upstream Upstream
+}
+
+func ExchangeParallelAll(upstreams []Upstream, req *dns.Msg) ([]ExchangeAllResult, error) {
+	replies := []ExchangeAllResult{}
+
+	if len(upstreams) == 0 {
+		return replies, errors.New("no upstream specified")
+	} else if len(upstreams) == 1 {
+		reply, err := exchange(upstreams[0], req)
+		res := ExchangeAllResult{
+			Resp:     reply,
+			Upstream: upstreams[0],
+		}
+		replies = append(replies, res)
+		return replies, err
+	}
+
+	errs := []error{}
+	n := 0
+	ch := make(chan *exchangeResult, len(upstreams))
+
+	for _, f := range upstreams {
+		go exchangeAsync(f, req, ch)
+	}
+
+	for {
+		select {
+		case rep := <-ch:
+			n++
+			if rep.err != nil {
+				errs = append(errs, rep.err)
+			} else if rep.reply != nil {
+				res := ExchangeAllResult{
+					Resp:     rep.reply,
+					Upstream: rep.upstream,
+				}
+				replies = append(replies, res)
+			}
+		}
+		if n == len(upstreams) {
+			break
+		}
+	}
+
+	if len(errs) == len(upstreams) {
+		return replies, errorx.DecorateMany("all upstreams failed to exchange", errs...)
+	}
+
+	return replies, nil
+}
+
 // exchangeAsync tries to resolve DNS request with one upstream and send result to resp channel
 func exchangeAsync(u Upstream, req *dns.Msg, resp chan *exchangeResult) {
 	reply, err := u.Exchange(req)

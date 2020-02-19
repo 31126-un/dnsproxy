@@ -488,6 +488,11 @@ func (p *Proxy) Resolve(d *DNSContext) error {
 }
 
 func (p *Proxy) exchange(req *dns.Msg, upstreams []upstream.Upstream) (reply *dns.Msg, u upstream.Upstream, err error) {
+	if true {
+		reply, u, err = p.exchangeFastest(req, upstreams)
+		return
+	}
+
 	if p.AllServers {
 		reply, u, err = upstream.ExchangeParallel(upstreams, req)
 		return
