@@ -62,12 +62,14 @@ func ExchangeParallel(u []Upstream, req *dns.Msg) (*dns.Msg, Upstream, error) {
 	}
 }
 
+// ExchangeAllResult - result of ExchangeAll()
 type ExchangeAllResult struct {
-	Resp     *dns.Msg
-	Upstream Upstream
+	Resp     *dns.Msg // response
+	Upstream Upstream // upstream server
 }
 
-func ExchangeParallelAll(upstreams []Upstream, req *dns.Msg) ([]ExchangeAllResult, error) {
+// ExchangeAll - receive responses from all upstream servers and return the results
+func ExchangeAll(upstreams []Upstream, req *dns.Msg) ([]ExchangeAllResult, error) {
 	replies := []ExchangeAllResult{}
 
 	if len(upstreams) == 0 {

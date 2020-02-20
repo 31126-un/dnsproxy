@@ -20,7 +20,7 @@ import (
 // . Receive ICMP packets.  The first received packet makes it the fastest IP address.
 // . Return DNS packet containing the chosen IP address (remove all other IP addresses from the packet)
 func (p *Proxy) exchangeFastest(req *dns.Msg, upstreams []upstream.Upstream) (*dns.Msg, upstream.Upstream, error) {
-	replies, err := upstream.ExchangeParallelAll(upstreams, req)
+	replies, err := upstream.ExchangeAll(upstreams, req)
 	if err != nil || len(replies) == 0 {
 		return nil, nil, err
 	}
@@ -28,7 +28,7 @@ func (p *Proxy) exchangeFastest(req *dns.Msg, upstreams []upstream.Upstream) (*d
 	total := 0
 	for _, r := range replies {
 		for _, a := range r.Resp.Answer {
-			if strings.ToLower(a.Header().Name) != strings.ToLower(req.Question[0].Name) {
+			if strings.EqualFold(a.Header().Name, req.Question[0].Name) {
 				continue
 			}
 
@@ -49,7 +49,7 @@ func (p *Proxy) exchangeFastest(req *dns.Msg, upstreams []upstream.Upstream) (*d
 	ch := make(chan *pingResult, len(upstreams))
 	for _, r := range replies {
 		for _, a := range r.Resp.Answer {
-			if strings.ToLower(a.Header().Name) != strings.ToLower(req.Question[0].Name) {
+			if strings.EqualFold(a.Header().Name, req.Question[0].Name) {
 				continue
 			}
 
@@ -102,7 +102,7 @@ func pingDo(addr net.IP, exres *upstream.ExchangeAllResult, ch chan *pingResult)
 	pinger.Run()
 
 	if !reply {
-		res.err = fmt.Errorf("No reply from %s", addr)
+		res.err = fmt.Errorf("no reply from %s", addr)
 	}
 	ch <- res
 }
