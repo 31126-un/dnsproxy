@@ -79,6 +79,8 @@ type Proxy struct {
 	cache       *cache       // cache instance (nil if cache is disabled)
 	cacheSubnet *cacheSubnet // cache instance (nil if cache is disabled)
 
+	fastestAddr FastestAddr
+
 	Config // proxy configuration
 
 	maxGoroutines chan bool // limits the number of parallel queries. if nil, there's no limit
@@ -133,6 +135,8 @@ type Config struct {
 	ResponseHandler      ResponseHandler      // response callback
 
 	DomainsReservedUpstreams map[string][]upstream.Upstream // map of domains and lists of corresponding upstreams
+
+	FindFastestAddr bool // use Fastest Address algorithm
 
 	MaxGoroutines int // maximum number of goroutines processing the DNS requests (important for mobile)
 }
@@ -248,6 +252,10 @@ func (p *Proxy) Init() {
 		if p.Config.EnableEDNSClientSubnet {
 			p.cacheSubnet = &cacheSubnet{cacheSize: p.CacheSizeBytes}
 		}
+	}
+
+	if p.FindFastestAddr {
+		p.fastestAddr.Init()
 	}
 
 	if p.MaxGoroutines > 0 {
@@ -488,7 +496,7 @@ func (p *Proxy) Resolve(d *DNSContext) error {
 }
 
 func (p *Proxy) exchange(req *dns.Msg, upstreams []upstream.Upstream) (reply *dns.Msg, u upstream.Upstream, err error) {
-	if true {
+	if p.FindFastestAddr {
 		reply, u, err = p.exchangeFastest(req, upstreams)
 		return
 	}
