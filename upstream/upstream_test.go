@@ -522,11 +522,16 @@ func checkUpstream(t *testing.T, u Upstream, addr string) {
 }
 
 func createTestMessage() *dns.Msg {
+	return createHostTestMessage("google-public-dns-a.google.com.")
+}
+
+func createHostTestMessage(host string) *dns.Msg {
 	req := dns.Msg{}
 	req.Id = dns.Id()
 	req.RecursionDesired = true
+	name := host + "."
 	req.Question = []dns.Question{
-		{Name: "google-public-dns-a.google.com.", Qtype: dns.TypeA, Qclass: dns.ClassINET},
+		{Name: name, Qtype: dns.TypeA, Qclass: dns.ClassINET},
 	}
 	return &req
 }
