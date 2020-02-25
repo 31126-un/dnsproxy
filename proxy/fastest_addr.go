@@ -282,11 +282,11 @@ func (f *FastestAddr) pingWait(total int, ch chan *pingResult) (*dns.Msg, upstre
 	for {
 		select {
 		case res := <-ch:
+			n++
 			if res.err != nil {
 				f.cacheAdd(res.addr, false)
 				break
 			}
-			n++
 
 			proto := "icmp"
 			if !res.isICMP {
