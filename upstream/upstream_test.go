@@ -522,7 +522,7 @@ func checkUpstream(t *testing.T, u Upstream, addr string) {
 }
 
 func createTestMessage() *dns.Msg {
-	return createHostTestMessage("google-public-dns-a.google.com.")
+	return createHostTestMessage("google-public-dns-a.google.com")
 }
 
 func createHostTestMessage(host string) *dns.Msg {
