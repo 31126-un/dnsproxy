@@ -79,7 +79,7 @@ type Proxy struct {
 	cache       *cache       // cache instance (nil if cache is disabled)
 	cacheSubnet *cacheSubnet // cache instance (nil if cache is disabled)
 
-	fastestAddr FastestAddr
+	fastestAddr FastestAddr // fastest-addr module
 
 	Config // proxy configuration
 
@@ -497,7 +497,7 @@ func (p *Proxy) Resolve(d *DNSContext) error {
 
 func (p *Proxy) exchange(req *dns.Msg, upstreams []upstream.Upstream) (reply *dns.Msg, u upstream.Upstream, err error) {
 	if p.FindFastestAddr {
-		reply, u, err = p.exchangeFastest(req, upstreams)
+		reply, u, err = p.fastestAddr.exchangeFastest(req, upstreams)
 		return
 	}
 
