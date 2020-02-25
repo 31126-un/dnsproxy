@@ -34,6 +34,8 @@ func (f *FastestAddr) Init() {
 		EnableLRU: true,
 	}
 	f.cache = glcache.New(conf)
+	f.allowICMP = true
+	f.allowTCP = true
 }
 
 type cacheEntry struct {
