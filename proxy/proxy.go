@@ -497,7 +497,7 @@ func (p *Proxy) Resolve(d *DNSContext) error {
 
 func (p *Proxy) exchange(req *dns.Msg, upstreams []upstream.Upstream) (reply *dns.Msg, u upstream.Upstream, err error) {
 	qtype := req.Question[0].Qtype
-	if p.FindFastestAddr && qtype == dns.TypeA || qtype == dns.TypeAAAA {
+	if p.FindFastestAddr && (qtype == dns.TypeA || qtype == dns.TypeAAAA) {
 		reply, u, err = p.fastestAddr.exchangeFastest(req, upstreams)
 		return
 	}
