@@ -75,6 +75,10 @@ type Options struct {
 	// Use Custom EDNS Client Address
 	EDNSAddr string `long:"edns-addr" description:"Send EDNS Client Address"`
 
+	// Respond to A or AAAA requests only with the fastest IP address
+	//  detected by ICMP response time or TCP connection time
+	FastestAddress bool `long:"fastest-addr" description:"Respond to A or AAAA requests only with the fastest IP address" optional:"yes" optional-value:"true"`
+
 	// Print DNSProxy version (just for the help)
 	Version bool `long:"version" description:"Prints the program version"`
 }
@@ -128,6 +132,8 @@ func run(options Options) {
 		ipv6Configuration := ipv6Configuration{ipv6Disabled: options.IPv6Disabled}
 		dnsProxy.RequestHandler = ipv6Configuration.handleDNSRequest
 	}
+
+	dnsProxy.FindFastestAddr = options.FastestAddress
 
 	// Start the proxy
 	err := dnsProxy.Start()

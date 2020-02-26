@@ -71,14 +71,14 @@ func TestLookupParallel(t *testing.T) {
 }
 
 type testUpstream struct {
-	a    net.IP
-	err  bool
-	slep time.Duration
+	a     net.IP
+	err   bool
+	sleep time.Duration // a delay before response
 }
 
 func (u *testUpstream) Exchange(req *dns.Msg) (*dns.Msg, error) {
-	if u.slep != 0 {
-		time.Sleep(u.slep)
+	if u.sleep != 0 {
+		time.Sleep(u.sleep)
 	}
 
 	resp := &dns.Msg{}
@@ -104,7 +104,7 @@ func (u *testUpstream) Address() string {
 func TestExchangeAll(t *testing.T) {
 	u1 := testUpstream{}
 	u1.a = net.ParseIP("1.1.1.1")
-	u1.slep = 100 * time.Millisecond
+	u1.sleep = 100 * time.Millisecond
 
 	u2 := testUpstream{}
 	u2.err = true
