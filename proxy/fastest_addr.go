@@ -103,8 +103,12 @@ func (f *FastestAddr) cacheAdd(addr net.IP, ok bool) {
 // Algorithm:
 // . Send requests to all upstream servers
 // . Receive responses
-// . For each response, for each IP address, send ICMP packet
+// . For each response, for each IP address:
+//   . search in cache.  If found: use as the fastest
+//   . send ICMP packet
+//   . connect via TCP
 // . Receive ICMP packets.  The first received packet makes it the fastest IP address.
+// . Receive TCP connection status.  The first connected address - the fastest IP address.
 // . Return DNS packet containing the chosen IP address (remove all other IP addresses from the packet)
 func (f *FastestAddr) exchangeFastest(req *dns.Msg, upstreams []upstream.Upstream) (*dns.Msg, upstream.Upstream, error) {
 	replies, err := upstream.ExchangeAll(upstreams, req)
@@ -116,10 +120,6 @@ func (f *FastestAddr) exchangeFastest(req *dns.Msg, upstreams []upstream.Upstrea
 	total := 0
 	for _, r := range replies {
 		for _, a := range r.Resp.Answer {
-			// if !strings.EqualFold(a.Header().Name, host) {
-			// 	continue
-			// }
-
 			var ip net.IP
 			switch addr := a.(type) {
 			case *dns.A:
@@ -148,10 +148,6 @@ func (f *FastestAddr) exchangeFastest(req *dns.Msg, upstreams []upstream.Upstrea
 	total = 0
 	for _, r := range replies {
 		for _, a := range r.Resp.Answer {
-			// if !strings.EqualFold(a.Header().Name, host) {
-			// 	continue
-			// }
-
 			var ip net.IP
 			switch addr := a.(type) {
 			case *dns.A:
