@@ -340,11 +340,6 @@ func TestUpstreams(t *testing.T) {
 			bootstrap: []string{"8.8.8.8"},
 		},
 		{
-			// Cisco OpenDNS (DNSCrypt)
-			address:   "sdns://AQAAAAAAAAAADjIwOC42Ny4yMjAuMjIwILc1EUAgbyJdPivYItf9aR6hwzzI1maNDL4Ev6vKQ_t5GzIuZG5zY3J5cHQtY2VydC5vcGVuZG5zLmNvbQ",
-			bootstrap: []string{"8.8.8.8:53"},
-		},
-		{
 			// Cloudflare DNS (DoH)
 			address:   "sdns://AgcAAAAAAAAABzEuMC4wLjGgENk8mGSlIfMGXMOlIlCcKvq7AVgcrZxtjon911-ep0cg63Ul-I8NlFj4GplQGb_TTLiczclX57DvMV8Q-JdjgRgSZG5zLmNsb3VkZmxhcmUuY29tCi9kbnMtcXVlcnk",
 			bootstrap: []string{"8.8.8.8:53"},
