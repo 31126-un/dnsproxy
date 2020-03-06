@@ -4,6 +4,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"net"
+	"strconv"
 	"strings"
 	"time"
 
@@ -25,6 +26,7 @@ type FastestAddr struct {
 	cache     glcache.Cache // cache of the fastest IP addresses
 	allowICMP bool
 	allowTCP  bool
+	tcpPort   uint
 }
 
 // Init - initialize module
@@ -36,22 +38,32 @@ func (f *FastestAddr) Init() {
 	f.cache = glcache.New(conf)
 	f.allowICMP = true
 	f.allowTCP = true
+	f.tcpPort = 80
 }
 
 type cacheEntry struct {
-	status int //0:ok; 1:timed out
+	status      int //0:ok; 1:timed out
+	latencyMsec uint
 }
 
 /*
 expire [4]byte
 status byte
+latency_msec [2]byte
 */
 func packCacheEntry(ent *cacheEntry) []byte {
 	expire := uint32(time.Now().Unix()) + cacheTTLSec
 	var d []byte
-	d = make([]byte, 4+1)
+	d = make([]byte, 4+1+2)
 	binary.BigEndian.PutUint32(d, expire)
-	d[4] = byte(ent.status)
+	i := 4
+
+	d[i] = byte(ent.status)
+	i++
+
+	binary.BigEndian.PutUint16(d[i:], uint16(ent.latencyMsec))
+	i += 2
+
 	return d
 }
 
@@ -62,49 +74,86 @@ func unpackCacheEntry(data []byte) *cacheEntry {
 		return nil
 	}
 	ent := cacheEntry{}
-	ent.status = int(data[4])
+	i := 4
+
+	ent.status = int(data[i])
+	i++
+
+	ent.latencyMsec = uint(binary.BigEndian.Uint16(data[i:]))
+	i += 2
+
 	return &ent
 }
 
 // find in cache
-func (f *FastestAddr) cacheFind(domain string, ip net.IP) int {
+func (f *FastestAddr) cacheFind(domain string, ip net.IP) *cacheEntry {
 	val := f.cache.Get(ip)
 	if val == nil {
-		return -1
+		return nil
 	}
 	ent := unpackCacheEntry(val)
 	if ent == nil {
-		return -1
+		return nil
 	}
-	if ent.status != 0 {
-		return ent.status
-	}
-	log.Debug("%s: Using %s address as the fastest (from cache)",
-		domain, ip)
-	return 0
+	return ent
 }
 
 // store in cache
-func (f *FastestAddr) cacheAdd(addr net.IP, ok bool) {
+func (f *FastestAddr) cacheAdd(ent *cacheEntry, addr net.IP) {
 	ip := addr.To4()
 	if ip == nil {
 		ip = addr
 	}
-	ent := cacheEntry{}
-	ent.status = 0
-	if !ok {
-		ent.status = 1
-	}
-	val := packCacheEntry(&ent)
+
+	val := packCacheEntry(ent)
 	f.cache.Set(ip, val)
+}
+
+// Search in cache
+func (f *FastestAddr) getFromCache(host string, replies []upstream.ExchangeAllResult) (*upstream.ExchangeAllResult, net.IP, error) {
+	var fastestIP net.IP
+	var fastestRes *upstream.ExchangeAllResult
+	var minLatency uint
+	minLatency = 0xffff
+
+	for _, r := range replies {
+		for _, a := range r.Resp.Answer {
+			var ip net.IP
+			switch addr := a.(type) {
+			case *dns.A:
+				ip = addr.A.To4()
+
+			case *dns.AAAA:
+				ip = addr.AAAA
+
+			default:
+				continue
+			}
+
+			ent := f.cacheFind(host, ip)
+			if ent != nil && ent.status == 0 && minLatency > ent.latencyMsec {
+				fastestIP = ip
+				fastestRes = &r
+				minLatency = ent.latencyMsec
+			}
+		}
+	}
+
+	if fastestRes != nil {
+		log.Debug("%s: Using %s address as the fastest (from cache)",
+			host, fastestIP)
+		return fastestRes, fastestIP, nil
+	}
+
+	return nil, nil, nil
 }
 
 // Return DNS response containing the fastest IP address
 // Algorithm:
 // . Send requests to all upstream servers
 // . Receive responses
+// . Search all IP addresses in cache.  If found: choose the fastest
 // . For each response, for each IP address:
-//   . search in cache.  If found: use as the fastest
 //   . send ICMP packet
 //   . connect via TCP
 // . Receive ICMP packets.  The first received packet makes it the fastest IP address.
@@ -120,28 +169,27 @@ func (f *FastestAddr) exchangeFastest(req *dns.Msg, upstreams []upstream.Upstrea
 	total := 0
 	for _, r := range replies {
 		for _, a := range r.Resp.Answer {
-			var ip net.IP
-			switch addr := a.(type) {
+			switch a.(type) {
 			case *dns.A:
-				ip = addr.A.To4()
-
+				//
 			case *dns.AAAA:
-				ip = addr.AAAA
-
+				//
 			default:
 				continue
-			}
-
-			status := f.cacheFind(host, ip)
-			if status == 0 {
-				return prepareReply(r.Resp, ip), r.Upstream, nil
 			}
 			total++
 		}
 	}
-
 	if total <= 1 {
 		return replies[0].Resp, replies[0].Upstream, nil
+	}
+
+	exres, address, err := f.getFromCache(host, replies)
+	if err != nil {
+		return nil, nil, err
+	}
+	if exres != nil {
+		return prepareReply(exres.Resp, address), exres.Upstream, nil
 	}
 
 	ch := make(chan *pingResult, total)
@@ -160,8 +208,7 @@ func (f *FastestAddr) exchangeFastest(req *dns.Msg, upstreams []upstream.Upstrea
 				continue
 			}
 
-			status := f.cacheFind(host, ip)
-			if status == -1 {
+			if f.cacheFind(host, ip) == nil {
 				if f.allowICMP {
 					go f.pingDo(ip, &r, ch)
 					total++
@@ -178,12 +225,12 @@ func (f *FastestAddr) exchangeFastest(req *dns.Msg, upstreams []upstream.Upstrea
 		return replies[0].Resp, replies[0].Upstream, nil
 	}
 
-	reply, upstream, address, err := f.pingWait(total, ch)
+	exres, address, err = f.pingWait(total, ch)
 	if err != nil {
 		return replies[0].Resp, replies[0].Upstream, nil
 	}
 
-	return prepareReply(reply, address), upstream, nil
+	return prepareReply(exres.Resp, address), exres.Upstream, nil
 }
 
 // remove all A/AAAA records, leaving only the fastest one
@@ -210,10 +257,11 @@ func prepareReply(resp *dns.Msg, address net.IP) *dns.Msg {
 }
 
 type pingResult struct {
-	addr   net.IP
-	exres  *upstream.ExchangeAllResult
-	err    error
-	isICMP bool
+	addr        net.IP
+	exres       *upstream.ExchangeAllResult
+	err         error
+	isICMP      bool // 1: ICMP; 0: TCP
+	latencyMsec uint
 }
 
 // Ping an address via ICMP and then send signal to the channel
@@ -241,12 +289,15 @@ func (f *FastestAddr) pingDo(addr net.IP, exres *upstream.ExchangeAllResult, ch 
 	}
 	log.Debug("%s: Sending ICMP Echo to %s",
 		res.exres.Resp.Question[0].Name, addr)
+	start := time.Now()
 	pinger.Run()
 
 	if !reply {
 		res.err = fmt.Errorf("%s: no reply from %s",
 			res.exres.Resp.Question[0].Name, addr)
 		log.Debug("%s", res.err)
+	} else {
+		res.latencyMsec = uint(time.Since(start).Milliseconds())
 	}
 	ch <- res
 }
@@ -257,9 +308,10 @@ func (f *FastestAddr) pingDoTCP(addr net.IP, exres *upstream.ExchangeAllResult, 
 	res.addr = addr
 	res.exres = exres
 
-	a := net.JoinHostPort(addr.String(), "80")
+	a := net.JoinHostPort(addr.String(), strconv.Itoa(int(f.tcpPort)))
 	log.Debug("%s: Connecting to %s via TCP",
 		res.exres.Resp.Question[0].Name, a)
+	start := time.Now()
 	conn, err := net.DialTimeout("tcp", a, tcpTimeout*time.Millisecond)
 	if err != nil {
 		res.err = fmt.Errorf("%s: no reply from %s",
@@ -268,19 +320,23 @@ func (f *FastestAddr) pingDoTCP(addr net.IP, exres *upstream.ExchangeAllResult, 
 		ch <- res
 		return
 	}
+	res.latencyMsec = uint(time.Since(start).Milliseconds())
 	conn.Close()
 	ch <- res
 }
 
 // Wait for the first successful ping result
-func (f *FastestAddr) pingWait(total int, ch chan *pingResult) (*dns.Msg, upstream.Upstream, net.IP, error) {
+func (f *FastestAddr) pingWait(total int, ch chan *pingResult) (*upstream.ExchangeAllResult, net.IP, error) {
 	n := 0
 	for {
 		select {
 		case res := <-ch:
 			n++
+			ent := cacheEntry{}
+
 			if res.err != nil {
-				f.cacheAdd(res.addr, false)
+				ent.status = 1
+				f.cacheAdd(&ent, res.addr)
 				break
 			}
 
@@ -291,13 +347,15 @@ func (f *FastestAddr) pingWait(total int, ch chan *pingResult) (*dns.Msg, upstre
 			log.Debug("%s: Using %s address as the fastest (%s)",
 				res.exres.Resp.Question[0].Name, res.addr, proto)
 
-			f.cacheAdd(res.addr, true)
+			ent.status = 0
+			ent.latencyMsec = res.latencyMsec
+			f.cacheAdd(&ent, res.addr)
 
-			return res.exres.Resp, res.exres.Upstream, res.addr, nil
+			return res.exres, res.addr, nil
 		}
 
 		if n == total {
-			return nil, nil, nil, fmt.Errorf("ping didn't work")
+			return nil, nil, fmt.Errorf("all ping tasks were timed out")
 		}
 	}
 }
