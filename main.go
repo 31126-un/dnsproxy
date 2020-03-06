@@ -133,8 +133,6 @@ func run(options Options) {
 		dnsProxy.RequestHandler = ipv6Configuration.handleDNSRequest
 	}
 
-	dnsProxy.FindFastestAddr = options.FastestAddress
-
 	// Start the proxy
 	err := dnsProxy.Start()
 	if err != nil {
@@ -175,6 +173,7 @@ func createProxyConfig(options Options) proxy.Config {
 		RefuseAny:                options.RefuseAny,
 		AllServers:               options.AllServers,
 		EnableEDNSClientSubnet:   options.EnableEDNSSubnet,
+		FindFastestAddr:          options.FastestAddress,
 	}
 
 	if options.EDNSAddr != "" {
