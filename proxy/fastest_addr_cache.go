@@ -6,7 +6,6 @@ import (
 	"time"
 
 	"github.com/AdguardTeam/dnsproxy/upstream"
-	"github.com/AdguardTeam/golibs/log"
 	"github.com/miekg/dns"
 )
 
@@ -83,7 +82,8 @@ func (f *FastestAddr) cacheAdd(ent *cacheEntry, addr net.IP) {
 }
 
 // Search in cache
-func (f *FastestAddr) getFromCache(host string, replies []upstream.ExchangeAllResult) (*upstream.ExchangeAllResult, net.IP, int) {
+func (f *FastestAddr) getFromCache(host string, replies []upstream.ExchangeAllResult) fastestAddrResult {
+	result := fastestAddrResult{}
 	var fastestIP net.IP
 	var fastestRes *upstream.ExchangeAllResult
 	var minLatency uint
@@ -116,11 +116,14 @@ func (f *FastestAddr) getFromCache(host string, replies []upstream.ExchangeAllRe
 		}
 	}
 
+	result.nCached = n
+
 	if fastestRes != nil {
-		log.Debug("%s: Using %s address as the fastest (from cache)",
-			host, fastestIP)
-		return fastestRes, fastestIP, n
+		result.res = fastestRes
+		result.ip = fastestIP
+		result.latency = minLatency
+		return result
 	}
 
-	return nil, nil, n
+	return result
 }

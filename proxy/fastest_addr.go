@@ -58,6 +58,13 @@ func (f *FastestAddr) totalIPAddrs(replies []upstream.ExchangeAllResult) int {
 	return n
 }
 
+type fastestAddrResult struct {
+	res     *upstream.ExchangeAllResult
+	ip      net.IP
+	latency uint
+	nCached int
+}
+
 // Return DNS response containing the fastest IP address
 // Algorithm:
 // . Send requests to all upstream servers
@@ -81,12 +88,18 @@ func (f *FastestAddr) exchangeFastest(req *dns.Msg, upstreams []upstream.Upstrea
 
 	total := f.totalIPAddrs(replies)
 	if total <= 1 {
+		// use the only response
 		return replies[0].Resp, replies[0].Upstream, nil
 	}
 
-	exresCached, addressCached, nCached := f.getFromCache(host, replies)
-	if exresCached != nil && nCached == total {
-		return prepareReply(exresCached.Resp, addressCached), exresCached.Upstream, nil
+	cachedResult := f.getFromCache(host, replies)
+	if cachedResult.res != nil {
+		if cachedResult.nCached == total {
+			// use the result from cache
+			return prepareReply(cachedResult.res.Resp, cachedResult.ip), cachedResult.res.Upstream, nil
+		}
+		log.Debug("%s: Found %s address as the fastest (from cache, %dms)",
+			host, cachedResult.ip, cachedResult.latency)
 	}
 
 	ch := make(chan *pingResult, total)
@@ -119,18 +132,26 @@ func (f *FastestAddr) exchangeFastest(req *dns.Msg, upstreams []upstream.Upstrea
 	}
 
 	if total == 0 {
+		// use the first response
 		return replies[0].Resp, replies[0].Upstream, nil
 	}
 
-	exres, address, err2 := f.pingWait(total, ch)
-
-	//...
-
+	result, err2 := f.pingWait(total, ch)
 	if err2 != nil {
+		if cachedResult.res != nil {
+			// use the result from cache
+			return prepareReply(cachedResult.res.Resp, cachedResult.ip), cachedResult.res.Upstream, nil
+		}
+		// use the first response
 		return replies[0].Resp, replies[0].Upstream, nil
 	}
 
-	return prepareReply(exres.Resp, address), exres.Upstream, nil
+	if cachedResult.res != nil && cachedResult.latency < result.latency {
+		// use the result from cache
+		result = cachedResult
+	}
+
+	return prepareReply(result.res.Resp, result.ip), result.res.Upstream, nil
 }
 
 // remove all A/AAAA records, leaving only the fastest one
@@ -226,7 +247,8 @@ func (f *FastestAddr) pingDoTCP(addr net.IP, exres *upstream.ExchangeAllResult, 
 }
 
 // Wait for the first successful ping result
-func (f *FastestAddr) pingWait(total int, ch chan *pingResult) (*upstream.ExchangeAllResult, net.IP, error) {
+func (f *FastestAddr) pingWait(total int, ch chan *pingResult) (fastestAddrResult, error) {
+	result := fastestAddrResult{}
 	n := 0
 	for {
 		select {
@@ -244,18 +266,21 @@ func (f *FastestAddr) pingWait(total int, ch chan *pingResult) (*upstream.Exchan
 			if !res.isICMP {
 				proto = "tcp"
 			}
-			log.Debug("%s: Using %s address as the fastest (%s)",
-				res.exres.Resp.Question[0].Name, res.addr, proto)
+			log.Debug("%s: Determined %s address as the fastest (%s, %dms)",
+				res.exres.Resp.Question[0].Name, res.addr, proto, res.latencyMsec)
 
 			ent.status = 0
 			ent.latencyMsec = res.latencyMsec
 			f.cacheAdd(&ent, res.addr)
 
-			return res.exres, res.addr, nil
+			result.res = res.exres
+			result.ip = res.addr
+			result.latency = res.latencyMsec
+			return result, nil
 		}
 
 		if n == total {
-			return nil, nil, fmt.Errorf("all ping tasks were timed out")
+			return result, fmt.Errorf("all ping tasks were timed out")
 		}
 	}
 }
